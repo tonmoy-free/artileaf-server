@@ -66,21 +66,51 @@ async function run() {
         const usersCollection = client.db('artileaf').collection('users');
         const artifactsCollection = client.db('artileaf').collection('artifacts');
 
-        app.get('/artifacts', async (req, res) => {
-            const { searchParams } = req.query;
-            let query = {}; // first time search null thakbe.
+        // app.get('/artifacts', async (req, res) => {
+        //     const { searchParams } = req.query;
+        //     let query = {}; // first time search null thakbe.
 
-            if (searchParams) {
-                query = {
-                    name: {
-                        $regex: searchParams,
-                        $options: "i" //small letter capital letter handle korar janno
-                    }
+        //     if (searchParams) {
+        //         query = {
+        //             name: {
+        //                 $regex: searchParams,
+        //                 $options: "i" //small letter capital letter handle korar janno
+        //             }
+        //         }
+        //     }
+        //     const result = await artifactsCollection.find(query).toArray();
+        //     res.send(result);
+        // })
+
+        app.get("/artifacts", async (req, res) => {
+            try {
+                const search = req.query.searchParams || "";
+                const sortOrder = req.query.sortOrder || "";
+
+                const query = {
+                    name: { $regex: search, $options: "i" }
+                };
+
+                // MongoDB aggregation to calculate likes count and sort
+                let sortValue = sortOrder === "asc" ? 1 : sortOrder === "desc" ? -1 : 0;
+
+                let pipeline = [
+                    { $match: query },
+                    { $addFields: { likesCount: { $size: { $ifNull: ["$likedBy", []] } } } },
+                ];
+
+                if (sortValue !== 0) {
+                    pipeline.push({ $sort: { likesCount: sortValue } });
                 }
+
+                const artifacts = await artifactsCollection.aggregate(pipeline).toArray();
+
+                res.send(artifacts);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Error fetching artifacts" });
             }
-            const result = await artifactsCollection.find(query).toArray();
-            res.send(result);
-        })
+        });
 
         //Artifacts with the highest like count. 
         app.get('/artifacts/top-liked', async (req, res) => {
@@ -105,7 +135,7 @@ async function run() {
             }
         });
 
-        app.get('/artifacts/:id',verifyFireBaseToken, async (req, res) => {
+        app.get('/artifacts/:id', verifyFireBaseToken, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await artifactsCollection.findOne(query);
